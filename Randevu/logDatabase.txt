@@ -1,0 +1,8 @@
+Log | User 2: I generate 1716 data blocks
+Log | User 1: I generate 1967 data blocks
+Log | User 1: I generate 1500 data blocks
+Log | User 1: I generate 1724 data blocks
+Log | User 3: I generate 1794 data blocks
+Log | User 1: I generate 1858 data blocks
+Log | User 2: I generate 1795 data blocks
+Log | User 3: I generate 1531 data blocks
