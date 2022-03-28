@@ -1,8 +1,9 @@
-Log | User 2: I generate 1716 data blocks
-Log | User 1: I generate 1967 data blocks
-Log | User 1: I generate 1500 data blocks
-Log | User 1: I generate 1724 data blocks
-Log | User 3: I generate 1794 data blocks
-Log | User 1: I generate 1858 data blocks
-Log | User 2: I generate 1795 data blocks
-Log | User 3: I generate 1531 data blocks
+Log | User 2: Function result = 25744.9 in 1716 point
+Log | User 1: Function result = 29511.2 in 1967 point
+Log | User 1: Function result = 22511.3 in 1500 point
+Log | User 1: Function result = 25864.8 in 1724 point
+Log | User 1: Function result = 27881.4 in 1858 point
+Log | User 1: Function result = 29469.5 in 1964 point
+Log | User 1: Function result = 24686.1 in 1645 point
+Log | User 1: Function result = 27416.5 in 1827 point
+Log | User 1: Function result = 29875.4 in 1991 point

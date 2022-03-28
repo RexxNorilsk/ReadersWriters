@@ -5,8 +5,9 @@
 #include <cstdlib>
 #include <time.h>
 #include <fstream>
+#include <string>
 
-//mpiexec -n 8 "B:\3.1 Parralel\MatrixMultiplay\MatrixMultiplayPath\x64\Debug\MPIMatrixMultiply.exe"
+//mpiexec -n 8 "C:\Parallel 3.2\ReadersWriters\x64\Debug\MPIMatrixMultiply.exe"
 
 //Настройки
 #define ndim 2// size a^2
@@ -20,11 +21,14 @@
 //Типы запросов
 #define typeQueryWrite 10
 #define typeQueryRead 20
+#define typeQueryFinalRead 25
 #define typeQueryFinalWork 0
+
 
 //Типы ответов
 #define work 5
 #define miss 10
+#define wait 15
 #define finalize -10
 
 using namespace std;
@@ -32,6 +36,38 @@ using namespace std;
 
 int randomRange(int max, int min = 1) {
 	return min + rand() % (max - min);
+}
+
+void SendDataRange(int start, int end, int type) {
+	for (int i = start; i < end; i++) {
+		MPI_Send(&type, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
+	}
+}
+
+int NormalizeQueue(int * queue, int length) {
+	int end = 0;
+	for (int i = 0; i < length;i++) {
+		if (queue[i] > 0) {
+			queue[end] = queue[i];
+			end++;
+		}
+	}
+	return end;
+}
+
+void AnswerWriter(int target, int* listReaders, int countReaders) {
+	int answer = wait;
+	//Закрыть доступ всем, сейчас активным читателям
+	for (int i = 0; i < countReaders; i++)
+		if (listReaders[i] > 0)
+			MPI_Send(&answer, 1, MPI_INT, listReaders[i], 0, MPI_COMM_WORLD);
+	answer = work;
+	MPI_Send(&answer, 1, MPI_INT, target, 0, MPI_COMM_WORLD);
+}
+
+void AnswerRead() {
+
+
 }
 
 
@@ -51,7 +87,7 @@ int main(int argv, char** argc)
 	srand(rank);
 
 	char filenameDataBase[256];
-	sprintf_s(filenameDataBase, "B:\\3.1 Parralel\\MatrixMultiplay\\MatrixMultiplayPath\\Randevu\\logDatabase.txt");
+	sprintf_s(filenameDataBase, "C:\\Parallel 3.2\\ReadersWriters\\Randevu\\logDatabase.txt");
 
 	fstream dataBase(filenameDataBase, ios::binary | ios::app);
 
@@ -64,53 +100,100 @@ int main(int argv, char** argc)
 
 	//Сервер
 	if (rank == 0) {
-		int	nowWrite = -1;
 		int counter = 0;
-		
+		int countReaders = size - countWriters - 1;
+		//Информация и очередь
+		int* listReaders = new int[size-countWriters-1];
+		int* queueWriters = new int[countWriters];
+		int nowWritting = -1;
+		for (int i = 0; i < countWriters; i++) queueWriters[i] = -1;
+		for (int i = 0; i < countReaders; i++) listReaders[i] = -1;
+
 		while (true) {
-			int buf;
-			//Конец по числу запросов
-			if (counter >= maxQueries)break;
-			//Проверяем наличие запроса
+			if (counter > maxQueries)break;
+			int query, answer;
+			//Проверка запроса
 			int flag = false;
 			MPI_Iprobe(MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &flag, &status);
 			if (flag) {
 				counter++;
-				MPI_Recv(&buf, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD, &status);
-				//Проверка о завершении записи
-				if (nowWrite == status.MPI_SOURCE) nowWrite = -1;
-				//Обработка запроса на запись
-				else if (buf == typeQueryWrite) {
-					//Можно писать
-					if (nowWrite < 0) {
-						buf = work;
-						cout << "User " << status.MPI_SOURCE << " start WRITE to file!" << endl;
-						nowWrite = status.MPI_SOURCE;
-						MPI_Send(&buf, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD);
+				MPI_Recv(&query, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD, &status);
+				if (nowWritting > 0) {
+					//Закончил запись
+					if (nowWritting == status.MPI_SOURCE) {
+						nowWritting = -1;
+						//Работа с очередью
+						int writersWaiting = NormalizeQueue(queueWriters, countWriters);
+						if (writersWaiting > 0) {
+							nowWritting = queueWriters[0];
+							AnswerWriter(nowWritting, listReaders, countReaders);
+						}
+						else {
+							int answer = work;
+							//Открыть доступ всем, сейчас активным читателям
+							for (int i = 0; i < countReaders; i++)
+								if (listReaders[i] > 0)
+									MPI_Send(&answer, 1, MPI_INT, listReaders[i], 0, MPI_COMM_WORLD);
+						}
 					}
-					//Запись занята
+					//Запись ещё не закончена
 					else {
-						buf = miss;
-						cout << "User try " << status.MPI_SOURCE << " start WRITE to file, but file occupied!" << endl;
-						MPI_Send(&buf, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD);
+						answer = wait;
+						if (query == typeQueryWrite) {
+							cout << status.MPI_SOURCE << " add to writers queue" << endl;
+							queueWriters[NormalizeQueue(queueWriters, countWriters)] = status.MPI_SOURCE;
+							MPI_Send(&answer, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD);
+						}
+						else if (query == typeQueryRead) {
+							cout << status.MPI_SOURCE << " add to readers queue" << endl;
+							listReaders[NormalizeQueue(listReaders, countReaders)] = status.MPI_SOURCE;
+							MPI_Send(&answer, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD);
+						}
 					}
 				}
-				//Обработка запроса на чтение
 				else {
-					buf = work;
-					cout << "User " << status.MPI_SOURCE << " start READ to file!" << endl;
-					MPI_Send(&buf, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD);
+					if (query == typeQueryWrite) {
+						cout << "Now write: " << status.MPI_SOURCE << endl;
+						nowWritting = status.MPI_SOURCE;
+						AnswerWriter(nowWritting, listReaders, countReaders);
+					}
+					else if(query == typeQueryFinalRead) {
+						cout << "Stop read: " << status.MPI_SOURCE << endl;
+						for (int i = 0; i < NormalizeQueue(listReaders, countReaders); i++)
+							if (listReaders[i] == status.MPI_SOURCE) {
+								listReaders[i] = -1;
+								break;
+							}
+					}
+					else {
+						cout << "Start read: " << status.MPI_SOURCE << endl;
+						answer = work;
+						listReaders[NormalizeQueue(listReaders, countReaders)] = status.MPI_SOURCE;
+						MPI_Send(&answer, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD);
+					}
 				}
 			}
 		}
 		//Завершаем работу всех потоков
 		int buf = finalize;
+		int query;
 		cout << "Start send finalize!" << endl;
-		for (int i = 1; i < size;i++) {
-			MPI_Recv(&nowWrite, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
-			if(nowWrite == status.MPI_SOURCE)MPI_Recv(&nowWrite, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
-			cout << "Send finalize to " << status.MPI_SOURCE << endl;
+		int i = 1;
+		for (int j = 0; j < countReaders; j++)
+			if (listReaders[j] > 0) {
+				MPI_Send(&buf, 1, MPI_INT, listReaders[j], 0, MPI_COMM_WORLD);
+				i++;
+			}
+		for (int j = 0; j < countWriters; j++)
+			if (queueWriters[j] > 0) {
+				MPI_Send(&buf, 1, MPI_INT, queueWriters[j], 0, MPI_COMM_WORLD);
+				i++;
+			}
+
+		for (; i < size;i++) {
 			buf = finalize;
+			MPI_Recv(&query, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
+			cout << "Send finalize to " << status.MPI_SOURCE << endl;
 			MPI_Send(&buf, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD);
 		}
 	}
@@ -118,8 +201,10 @@ int main(int argv, char** argc)
 	else {
 		int type = typeReader;
 		streampos begin = rank;
+		bool stopper = false;
 		if (rank < countWriters + 1)type = typeWriter;
 		while (true) {
+			if (stopper)break;
 			Sleep(randomRange(3000, 300));
 			int typeQuery, answer;
 			//Писатель
@@ -131,20 +216,44 @@ int main(int argv, char** argc)
 			//Получаем ответ
 			MPI_Recv(&answer, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			if (answer == finalize)break;
-			else if (answer == work) {
+			else if (answer == work || answer == wait) {
+				if (answer == wait) {
+					MPI_Recv(&answer, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+					if (answer == finalize)break;
+				}
 				//Выполняем работу с базой данных
 				if (type == typeWriter) {
-					//Генерируем число и записываем в файд
+					//Генерируем число, находим значение функции и передаём для записи
 					typeQuery = randomRange(2000, 1500);
-					dataBase << "Log | User " << rank << ": I generate " << typeQuery << " data blocks" << endl;
-					//Отправляем ответ о завершённой работе с базой данных					
+					double buf = typeQuery * 15 - 4 * sin(typeQuery) + log(typeQuery);
+					dataBase << "Log | User " << rank << ": Function result = " << buf << " in " << typeQuery << " point" << endl;
+					//Отправляем ответ с данными и завершённой работе с базой данных
 					MPI_Send(&typeQuery, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
 				}
 				else {
-					//Находим объём файла от текущей позиции
-					begin = dataBase.tellg();
-					dataBase.seekg(0, ios::end);
-					typeQuery = dataBase.tellg() - begin;
+					//Находим значение функции
+					MPI_Recv(&answer, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+					string str;
+					int counter = 0;
+					int flag = false;
+					while (getline(dataBase, str)) {
+						MPI_Iprobe(MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &flag, &status);
+						if (flag) {
+							//Для остановки
+							MPI_Recv(&answer, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
+							if (answer == finalize) {
+								stopper = true;
+								break;
+							}
+							//Для продолжения
+							MPI_Recv(&answer, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
+						}
+						//Чтение
+						counter++;
+					}
+					if (stopper)break;
+					//Запрос о завершении чтения
+					MPI_Send(&counter, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
 				}
 			}
 		}
