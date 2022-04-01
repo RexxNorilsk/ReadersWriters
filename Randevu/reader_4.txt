@@ -1,0 +1,3 @@
+String final now: 0
+String final now: 4
+String final now: 4

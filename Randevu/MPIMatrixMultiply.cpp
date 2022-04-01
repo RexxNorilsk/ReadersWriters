@@ -7,12 +7,11 @@
 #include <fstream>
 #include <string>
 
-//mpiexec -n 8 "B:\3.1 Parralel\MatrixMultiplay\MatrixMultiplayPath\x64\Debug\MPIMatrixMultiply.exe"
+//mpiexec -n 8 "C:\Parallel 3.2\ReadersWriters\x64\Debug\MPIMatrixMultiply.exe"
 
 //Настройки
-#define ndim 2// size a^2
-#define countWriters 3
-#define maxQueries 16
+#define countWriters 2
+#define maxQueries 32
 
 //Типы пользователей
 #define typeWriter 1000
@@ -113,7 +112,7 @@ int main(int argv, char** argc)
 	srand(rank);
 
 	char filenameDataBase[256];
-	sprintf_s(filenameDataBase, "B:\\3.1 Parralel\\MatrixMultiplay\\MatrixMultiplayPath\\Randevu\\logDatabase.txt");
+	sprintf_s(filenameDataBase, "C:\\Parallel 3.2\\ReadersWriters\\Randevu\\logDatabase.txt");
 
 	fstream dataBase(filenameDataBase, ios::binary | ios::app);
 
@@ -239,9 +238,14 @@ int main(int argv, char** argc)
 		int typeQuery, answer;
 		if (rank < countWriters + 1)type = typeWriter;
 		bool stopper = false;
+		char target[256];
+		sprintf_s(target, "C:\\Parallel 3.2\\ReadersWriters\\Randevu\\reader_%d.txt", rank);
+
+		ofstream localDB(target, ios::binary | ios::app);
+
 		while (true) {
 			if (stopper)break;
-			Sleep((type == typeWriter ? randomRange(3000, 500) : randomRange(500, 300)));
+			Sleep(randomRange(250, 100));
 			//Тип запроса
 			if (type == typeWriter) typeQuery = typeQueryWrite;
 			else typeQuery = typeQueryRead;
@@ -262,7 +266,8 @@ int main(int argv, char** argc)
 					//Находим значение функции
 					string str;
 					int counter = 0;
-					dataBase.seekg(0, ios_base::beg);
+					dataBase.close();
+					ifstream dataBase(filenameDataBase);
 					while (getline(dataBase, str)) {
 						int flag = false;
 						MPI_Iprobe(0, 0, MPI_COMM_WORLD, &flag, MPI_STATUS_IGNORE);
@@ -270,22 +275,26 @@ int main(int argv, char** argc)
 							MPI_Recv(&answer, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 							while (answer == wait)MPI_Recv(&answer, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 							if (answer == finalize) {
+								localDB << "Finalize!" << endl;
 								stopper = true;
 								break;
 							}
 						}
 						//Чтение
-						Sleep(randomRange(250, 100));
 						counter++;
 					}
+					localDB << "String final now: " << counter << endl;
 					if (stopper)break;
 					//Запрос о завершении чтения
 					answer = typeQueryComplete;
 					MPI_Send(&answer, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+					if(type == typeWriter)Sleep(randomRange(500, 250));
 				}
 			}
 		}
+		if (type == typeReader)localDB.close();
 	}
 	dataBase.close();
 	MPI_Finalize();
 }
+
